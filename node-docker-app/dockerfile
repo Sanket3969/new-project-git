@@ -1,0 +1,18 @@
+# Base image — alpine is small (~50 MB vs ~300 MB full)
+FROM node:20-alpine
+
+# Working directory inside the container
+WORKDIR /app
+
+# Copy package files FIRST (layer cache trick)
+COPY package*.json ./
+RUN npm ci --only=production
+
+# Copy source code
+COPY . .
+
+# Document the port (doesn't publish it yet)
+EXPOSE 3000
+
+# Start command
+CMD ["node", "index.js"]

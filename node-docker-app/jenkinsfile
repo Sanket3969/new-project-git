@@ -1,0 +1,101 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKERHUB_USER    = 'patnurkars1'
+        IMAGE_NAME        = "${patnurkars1}/node-docker-app"
+        IMAGE_TAG         = "v${BUILD_NUMBER}"
+        CONTAINER_NAME    = 'node-docker-app'
+        K8S_DEPLOYMENT    = 'node-docker-app'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                echo "Checking out branch: ${env.BRANCH_NAME ?: 'main'}"
+                checkout scm
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                echo "Building image: ${IMAGE_NAME}:${IMAGE_TAG}"
+                sh """
+                    cd node-docker-app
+                    docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                    docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
+                """
+            }
+        }
+
+        stage('Test') {
+            steps {
+                echo 'Running container health check...'
+                sh """
+                    docker run -d \
+                        --name test-container \
+                        -p 3001:3000 \
+                        ${IMAGE_NAME}:${IMAGE_TAG}
+
+                    sleep 5
+
+                    curl -f http://localhost:3001/health || exit 1
+
+                    echo "Health check passed!"
+
+                    docker stop test-container
+                    docker rm test-container
+                """
+            }
+        }
+
+        stage('Push to DockerHub') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-credentials',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh """
+                        echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+                        docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                        docker push ${IMAGE_NAME}:latest
+                        echo "Pushed ${IMAGE_NAME}:${IMAGE_TAG} successfully"
+                    """
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                echo 'Deploying to Minikube...'
+                sh """
+                    kubectl set image deployment/${K8S_DEPLOYMENT} \
+                        ${CONTAINER_NAME}=${IMAGE_NAME}:${IMAGE_TAG}
+
+                    kubectl rollout status deployment/${K8S_DEPLOYMENT} \
+                        --timeout=60s
+                """
+            }
+        }
+
+    }
+
+    post {
+        success {
+            echo "Pipeline succeeded! Image ${IMAGE_NAME}:${IMAGE_TAG} is live."
+            sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
+        }
+        failure {
+            echo "Pipeline failed — check the logs above."
+            sh """
+                docker stop test-container || true
+                docker rm test-container  || true
+            """
+        }
+        always {
+            echo "Pipeline finished. Build #${BUILD_NUMBER}"
+        }
+    }
+}
