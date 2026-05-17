@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         DOCKERHUB_USER    = 'patnurkars1'
-        IMAGE_NAME        = "${patnurkars1}/node-docker-app"
+        IMAGE_NAME        = "${DOCKERHUB_USER}/node-docker-app"
         IMAGE_TAG         = "v${BUILD_NUMBER}"
         CONTAINER_NAME    = 'node-docker-app'
         K8S_DEPLOYMENT    = 'node-docker-app'
